@@ -1,0 +1,99 @@
+--- a/tft/config.py
++++ b/tft/config.py
+@@ -18,7 +18,7 @@
+ from __future__ import annotations
+ 
+ import os
+-from dataclasses import dataclass
++from dataclasses import dataclass, replace
+ from typing import Literal
+ 
+ import torch
+@@ -197,6 +197,48 @@
+     return weight_quantization, activation_quantization, matmul_quantization
+ 
+ 
++def weight_levels() -> dict[str, int]:
++    """hutter-prize E303: per-group weight levels, TFT_WEIGHT_LEVELS="SUBSTR=L,..."
++
++    Each SUBSTR selects the quantized weights whose name contains it (as in
++    scripts/tfeval/perturb.py, e.g. "mlp.down" or "attention.query_projection");
++    L is an odd level count from 5 to 15 (the ints are -(L-1)/2 .. (L-1)/2).
++    Unset: every weight keeps his 15 levels."""
++    raw = os.environ.get("TFT_WEIGHT_LEVELS", "").strip()
++    out: dict[str, int] = {}
++    for item in filter(None, (x.strip() for x in raw.split(","))):
++        sub, _, val = item.partition("=")
++        assert sub and val.isdigit(), "TFT_WEIGHT_LEVELS item %r is not SUBSTR=L" % item
++        levels = int(val)
++        assert levels % 2 == 1 and 5 <= levels <= 15, (
++            "TFT_WEIGHT_LEVELS %s=%d: L must be odd, 5..15 (3 is the ParetoQ path)" % (sub, levels))
++        out[sub] = levels
++    return out
++
++
++def apply_weight_levels(model: torch.nn.Module) -> list[tuple[str, int]]:
++    """set the bucket count of each weight quantizer that TFT_WEIGHT_LEVELS
++    selects; must run after every model change and before the state is loaded
++    (the scale shapes do not depend on the level count, so any state loads)"""
++    levels = weight_levels()
++    if not levels:
++        return []
++    changed = []
++    for name, module in model.named_modules():
++        quantize = getattr(module, "quantize_weight", None)
++        if quantize is None:
++            continue
++        hits = [sub for sub in levels if sub in name + ".weight"]
++        assert len(hits) <= 1, "%s matches several TFT_WEIGHT_LEVELS items: %s" % (name, hits)
++        if hits:
++            assert quantize.quant.buckets == 15, name
++            quantize.quant = replace(quantize.quant, buckets=levels[hits[0]])
++            changed.append((name, levels[hits[0]]))
++    unused = [sub for sub in levels if not any(sub in n + ".weight" for n, _ in changed)]
++    assert not unused, "TFT_WEIGHT_LEVELS items match no quantized weight: %s" % unused
++    return changed
++
++
+ def geometry(name: str | None = None) -> Geometry:
+     """the PoC geometry; default poc4m = HIS OWN 4m (commit 93edd6b) on our
+     vocabulary, at his final window 1024 instead of the 2048 that config used
+--- a/tft/export_weights_poc.py
++++ b/tft/export_weights_poc.py
+@@ -168,6 +168,10 @@
+               % (paket["x"], paket["use_last"], paket["use_match"],
+                  paket["n_sentinel"], added), flush=True)
+     path = tftcfg.model_path("fp32", g.name)
++    # hutter-prize E303: the level counts the model was trained with
++    levels_changed = tftcfg.apply_weight_levels(model)
++    if levels_changed:
++        print("weight levels: %d quantizers changed" % len(levels_changed), flush=True)
+     model.load_state_dict(torch.load(path, map_location=device))
+     model.eval()
+     print("loaded " + path, flush=True)
+@@ -205,6 +209,9 @@
+             ints, scale_used = quantize_weight_rows(value, scale_fp32)
+ 
+             quantize_module = modules[prefix].quantize_weight
++            # hutter-prize E303: quantize_weight_rows clamps to his -7..7; a
++            # quantizer with fewer levels (TFT_WEIGHT_LEVELS) clamps further
++            ints = ints.clamp(quantize_module.quant.qmin, quantize_module.quant.qmax)
+             ints_reference = quantize_module(
+                 value, initialize_scales_steps=None, return_ints=True
+             )
+--- a/tft/runner.py
++++ b/tft/runner.py
+@@ -388,6 +388,13 @@
+                 flush=True,
+             )
+ 
++    # hutter-prize E303: per-group weight levels (TFT_WEIGHT_LEVELS), after
++    # every model change and before any state is loaded
++    levels_changed = tftcfg.apply_weight_levels(raw_model)
++    if levels_changed and main_process:
++        print("weight levels: %d quantizers changed: %s" % (
++            len(levels_changed), ", ".join("%s=%d" % x for x in levels_changed)), flush=True)
++
+     # Warm start: a new training (new package, new set of documents) begins
+     # from the weights of stage 1 instead of random numbers.  The epoch index
+     # starts at 0; the weights are taken over shape-aware (X0ROW grows

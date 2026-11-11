@@ -1,0 +1,15 @@
+--- a/tft/config.py
++++ b/tft/config.py
+@@ -157,6 +157,12 @@
+     scale_steps = base.initialize_scales_steps
+     if scale_steps is not None:
+         scale_steps = int(os.environ.get("TFT_SCALE_STEPS", str(scale_steps)))
++        # hutter-prize T205: TFT_KEEP_SCALES=1 skips the scale initialisation.
++        # It runs on top of the loaded scales (weights: maximum, activations:
++        # add), so a qat run that loads a quantized state (the shipped
++        # weights, or its own checkpoint after a preemption) must keep them.
++        if os.environ.get("TFT_KEEP_SCALES", "0") == "1":
++            scale_steps = None
+     return PhaseSchedule(
+         epochs=epochs,
+         warmup_epochs=warmup,

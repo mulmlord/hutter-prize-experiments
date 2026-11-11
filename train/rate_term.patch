@@ -1,0 +1,21 @@
+--- a/pysrc/train.py
++++ b/pysrc/train.py
+@@ -31,6 +31,9 @@
+ ) -> None:
+     model.train()
+     optimizers = make_optimizers(raw_model, cfg.optimizer_config)
++    from tft.rate import RateTerm  # E303: train/rate_term.patch, TFT_RATE_LAMBDA
++
++    rate = RateTerm.from_env()
+ 
+     initialize_scales(raw_model=raw_model, model=model, data=data, cfg=cfg)
+ 
+@@ -75,6 +78,8 @@
+             total_step_tokens += micro_batch.input_tokens.numel()
+             loss.backward()
+ 
++        if rate is not None:
++            rate.add_grad(raw_model, float(total_step_unmasked_tokens) / data.gradient_accumulation_steps)
+         optimizers.step()
+         optimizers.zero_grad()
+ 
