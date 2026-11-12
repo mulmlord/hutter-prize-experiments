@@ -192,6 +192,12 @@ saving, but under the ticket's 100 KB. Training won back 89% of the warm start's
 bytes. The 700 KB per 1% is t205's rate. For the requantized variants of T203, every100 reached the payload at
 a factor of 0.55–0.62, not t205's 0.812. If that applies here, the CE cost is lower and the net nearer −130 KB.
 `below150.ev` on the laptop gives this container's transformer code length on the first 150 MiB.
+Result: +0.004098 ± 0.00002 nats/token (+0.392%) against `t205-8q2f`, +112,423 B of transformer code over
+39,612 documents. That agrees with every100 (+0.402%). The payload is measured by a 150 MiB curve run of
+`builds/neif-e303r1-curve` (comp9 3,824,545 B, −175,335 B against `neif-t205-curve`; laptop; a first start on 2026-11-11 was cut
+by a shutdown, restarted 2026-11-12 15:38, `runs/20261112-153847_comp9_e303r1-curve150`), compared with t205's curve `0037`. At t205's factor
+(0.812) the transformer code would be +91 KB of payload at 150 MiB; at the requantized variants' 0.59 it would
+be +66 KB.
 
 ### A byte term in the loss (2026-11-11, `train/rate_term.py`, `train/rate_term.patch`)
 The qat result says the trainer gives bytes away because its loss has no term for them. `TFT_RATE_LAMBDA=X`

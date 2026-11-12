@@ -1,0 +1,15 @@
+--- a/tft/runner.py
++++ b/tft/runner.py
+@@ -395,6 +395,12 @@
+         print("weight levels: %d quantizers changed: %s" % (
+             len(levels_changed), ", ".join("%s=%d" % x for x in levels_changed)), flush=True)
+ 
++    # hutter-prize research item 4: word-rate hierarchical layers (TFT_HIER, train/hier.py); the
++    # parameters stay the same, so it comes after every model change and any state still loads
++    from tft.hier import install_hier
++
++    install_hier(raw_model, cfg, log=(lambda s: print(s, flush=True)) if main_process else (lambda s: None))
++
+     # Warm start: a new training (new package, new set of documents) begins
+     # from the weights of stage 1 instead of random numbers.  The epoch index
+     # starts at 0; the weights are taken over shape-aware (X0ROW grows
